@@ -5,6 +5,8 @@ import os
 import requests
 from decimal import Decimal
 import time
+# from Mapillary import get_bench_from_mapillary
+from StreetView import get_bench_from_streetview_yolo
 
 # Install yolov5 first
 
@@ -16,9 +18,8 @@ import time
 start_time = time.time()
 print("🚀 Démarrage du script...")
 
-# === CONFIG ===
 WIKI_SEARCH_QUERY = "public bench Paris"
-MAX_WIKI_IMAGES = 1000  # limiter pour éviter les abus
+MAX_WIKI_IMAGES = 20000  # limiter pour éviter les abus
 
 # === SETUP ===
 os.makedirs("images", exist_ok=True)
@@ -71,63 +72,6 @@ def get_wikimedia_bench_images(limit=1000):
         print(f"Erreur Wikimedia API: {e}")
         return []
 
-
-# === Mapillary fallback search ===
-print("\n🔍 Recherche des images sur Mapillary...")
-def get_bench_from_mapillary(lat, lon, bench_id):
-    MAPILLARY_TOKEN = os.getenv("MAPILLARY_TOKEN")  # Request token => https://www.mapillary.com/dashboard/developers
-    if not MAPILLARY_TOKEN:
-        return ""
-
-    try:
-        url = "https://graph.mapillary.com/images"
-        params = {
-            "access_token": MAPILLARY_TOKEN,
-            "fields": "id,thumb_1024_url",
-            "closeto": f"{lon},{lat}",
-            "limit": 1
-        }
-        resp = requests.get(url, params=params)
-        data = resp.json()
-
-        if "data" not in data or len(data["data"]) == 0:
-            return ""
-
-        img_url = data["data"][0]["thumb_1024_url"]
-        img_id = data["data"][0]["id"]
-        img_path = f"images/mapillary_{bench_id}_{img_id}.jpg"
-
-        # Télécharger l'image
-        img_data = requests.get(img_url).content
-        with open(img_path, "wb") as f:
-            f.write(img_data)
-
-        # YOLO detection
-        import torch
-        import cv2
-
-        model = torch.hub.load("ultralytics/yolov5", "yolov5s", pretrained=True, verbose=False)
-        img = cv2.imread(img_path)
-        results = model(img)
-        detections = results.pandas().xyxy[0]
-
-        for i, row in detections.iterrows():
-            label = row["name"]
-            conf = row["confidence"]
-            if label in ["bench", "chair", "sofa"] and conf > 0.4:
-                # Crop et sauvegarde
-                xmin, ymin, xmax, ymax = map(int, [row["xmin"], row["ymin"], row["xmax"], row["ymax"]])
-                crop = img[ymin:ymax, xmin:xmax]
-                final_path = f"images/bench_{bench_id}_mapillary.jpg"
-                cv2.imwrite(final_path, crop)
-                return final_path
-
-        return ""
-
-    except Exception as e:
-        print(f"⚠️ Erreur Mapillary/YOLO pour banc {bench_id}: {e}")
-        return ""
-
 wikimedia_images = get_wikimedia_bench_images(MAX_WIKI_IMAGES)
 wiki_image_index = 0  # pour attribuer une image différente à chaque banc sans doublon
 
@@ -166,7 +110,13 @@ for i, node in enumerate(result.nodes, 1):
             image_url = wikimedia_images[wiki_image_index]
             ext = image_url.split(".")[-1].split("?")[0].split("/")[0]
             local_path = f"images/bench_{node.id}.{ext}"
-            response = requests.get(image_url, timeout=10)
+            search_terms = ["file:bench", "file:park bench", "file:public seating", "file:street furniture"]
+
+            params = {
+                "search_terms": json.dumps(search_terms)
+            }
+            response = requests.get(image_url, params=params, timeout=10)
+            
             if response.status_code == 200:
                 with open(local_path, "wb") as f_img:
                     f_img.write(response.content)
@@ -175,9 +125,18 @@ for i, node in enumerate(result.nodes, 1):
         except Exception as e:
             print(f"⚠️ Erreur image Wikimedia pour banc {node.id}: {e}")
 
-    # Cas 3 : fallback Mapillary + YOLO (si pas d'image encore)
+    # # Cas 3 : fallback Mapillary + YOLO (si pas d'image encore)
+    # if not photo_url:
+    #     lat = float(node.lat)
+    #     lon = float(node.lon)
+
+    #     photo_url = get_bench_from_mapillary(
+    #         lat, lon, node.id,
+    #             lon - 0.001, lat - 0.001, lon + 0.001, lat + 0.001
+    #         )
+
     if not photo_url:
-        photo_url = get_bench_from_mapillary(node.lat, node.lon, node.id)
+        photo_url = get_bench_from_streetview_yolo(node.lat, node.lon, node.id)
 
     bench = {
         "id": node.id,
