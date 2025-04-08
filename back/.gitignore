@@ -2,6 +2,7 @@
 env/
 images/
 detected_benches/
+__pycache__/
 yolov5/
 *.jpg
 *.png
