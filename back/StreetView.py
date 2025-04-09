@@ -32,7 +32,7 @@ def get_bench_from_streetview_yolo(lat, lon, bench_id, headings=(0, 90, 180, 270
             if response.status_code != 200 or response.content.startswith(b'<!DOCTYPE html>'):
                 continue  # Aucun panorama dans cette direction
 
-            img_path = f"images/streetview_{bench_id}_{heading}.jpg"
+            img_path = f"streetview/streetview_{bench_id}_{heading}.jpg"
             with open(img_path, "wb") as f:
                 f.write(response.content)
 
